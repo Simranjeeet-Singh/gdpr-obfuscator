@@ -1,0 +1,51 @@
+import boto3
+import pandas as pd
+from io import StringIO
+import hashlib
+
+def lambda_handler(event, context):
+    # Initialize S3 client
+    s3_client = boto3.client('s3')
+
+    # Define S3 bucket and file key
+    bucket_name = 'gdpr-obfuscator-project'
+    file_key = 'sample_data.csv'
+
+    # Download the CSV file from S3
+    csv_obj = s3_client.get_object(Bucket=bucket_name, Key=file_key)
+    csv_data = csv_obj['Body'].read().decode('utf-8')
+
+    # Convert CSV content into a DataFrame
+    df = pd.read_csv(StringIO(csv_data))
+
+    # Function to hash data
+    def hash_data(value):
+        if pd.notnull(value):
+            return hashlib.sha256(value.encode()).hexdigest()  # Apply SHA-256 hash
+        else:
+            return value  # Return null values as they are
+
+    # Obfuscate sensitive fields using hashing
+    def anonymize_with_hashing(df, sensitive_fields):
+        for field in sensitive_fields:
+            df[field] = df[field].apply(lambda x: hash_data(x))
+        return df
+
+    sensitive_fields = ['name', 'email']  # Replace with actual PII fields
+    df = anonymize_with_hashing(df, sensitive_fields)
+
+    # Convert DataFrame back to CSV
+    csv_buffer = StringIO()
+    df.to_csv(csv_buffer, index=False)
+
+    # Define the target S3 bucket and file for the obfuscated data
+    processed_bucket = 'gdpr-project-processeddata'
+    processed_file_key = 'hashed_file.csv'
+
+    # Upload the hashed CSV file to the processed S3 bucket
+    s3_client.put_object(Bucket=processed_bucket, Key=processed_file_key, Body=csv_buffer.getvalue())
+
+    return {
+        'statusCode': 200,
+        'body': 'File processed and uploaded with hashed data successfully'
+    }
